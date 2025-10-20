@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.scoula.asset.mapper.CategoryMapper">
+    <resultMap id="categoryMap" type="org.scoula.asset.domain.CategoryVo">
+        <id property="assetCategoryCode" column="asset_category_code"/>
+        <result property="name" column="name"/>
+    </resultMap>
+
+    <select id="getAllCategories" resultMap="categoryMap">
+        SELECT *
+        FROM category
+    </select>
+
+    <select id="getCategoryByCode" resultMap="categoryMap">
+        SELECT *
+        FROM category
+        WHERE asset_category_code = #{assetCategoryCode}
+    </select>
+
+    <insert id="insertCategory">
+        INSERT INTO category (asset_category_code, name)
+        VALUES (#{assetCategoryCode}, #{name})
+    </insert>
+
+    <update id="updateCategory">
+        UPDATE category
+        SET name = #{name}
+        WHERE asset_category_code = #{assetCategoryCode}
+    </update>
+
+    <delete id="deleteCategory">
+        DELETE
+        FROM category
+        WHERE asset_category_code = #{assetCategoryCode}
+    </delete>
+</mapper>

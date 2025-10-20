@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.scoula.product.mapper.FundDailyReturnMapper">
+
+    <!-- ResultMap -->
+    <resultMap id="FundDailyReturnMap" type="org.scoula.product.domain.FundDailyReturnVo" autoMapping="true">
+        <id property="id" column="id"/>
+        <result property="fundCode" column="fund_code"/>
+        <result property="recordDate" column="record_date"/>
+        <result property="returnRate" column="return_rate"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+
+
+    <!-- 전체(최근일자 우선) -->
+    <select id="findByFundCode" resultMap="FundDailyReturnMap">
+        SELECT id, fund_code, record_date, return_rate, created_at, updated_at
+        FROM fund_daily_return
+        WHERE fund_code = #{fundCode}
+        ORDER BY record_date DESC, id DESC
+    </select>
+
+
+
+
+</mapper>

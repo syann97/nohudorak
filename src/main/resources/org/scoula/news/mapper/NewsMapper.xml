@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+  PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+  "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!-- namespace는 RecipientMapper 인터페이스의 전체 경로와 일치해야 합니다. -->
+<mapper namespace="org.scoula.news.mapper.NewsMapper">
+
+  <insert id="upsertNews">
+    INSERT INTO news (category, title, link, date, summary)
+    VALUES (#{category}, #{title}, #{link}, #{date}, #{summary}) ON DUPLICATE KEY
+    UPDATE
+      title =
+    VALUES (title), date =
+    VALUES (date), summary =
+    VALUES (summary), created_at = NOW()
+  </insert>
+
+
+  <insert id="insertNews">
+    INSERT INTO news (category, title, link, date, summary)
+    VALUES (#{category}, #{title}, #{link}, #{date}, #{summary})
+  </insert>
+
+  <select id="findByCategory" resultType="NewsVo">
+    SELECT *
+    FROM news
+    WHERE category = #{category}
+    ORDER BY created_at DESC
+  </select>
+
+  <select id="findAll" resultType="NewsVo">
+    SELECT *
+    FROM news
+    ORDER BY category ASC
+  </select>
+
+  <update id="updateNews">
+    UPDATE news
+    SET title      = #{title},
+        link       = #{link},
+        date       = #{date},
+        summary    = #{summary},
+        created_at = NOW()
+    WHERE category = #{category}
+  </update>
+
+</mapper>

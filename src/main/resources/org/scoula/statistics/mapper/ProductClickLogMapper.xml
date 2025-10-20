@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="org.scoula.statistics.mapper.ProductClickLogMapper">
+
+    <resultMap id="productClickStatsMap" type="org.scoula.statistics.dto.ProductClickStatsDto">
+        <result property="finPrdtCd" column="fin_prdt_cd"/>
+        <result property="clickCount" column="click_count"/>
+    </resultMap>
+
+    <insert id="insertClickLog" parameterType="org.scoula.statistics.domain.ProductClickLogVo">
+        INSERT INTO product_click_log (fin_prdt_cd, email, triggered_by)
+        VALUES (#{finPrdtCd}, #{email}, #{triggeredBy})
+    </insert>
+
+    <delete id="deleteClickLogsBefore" parameterType="java.time.LocalDateTime">
+        DELETE FROM product_click_log WHERE created_at &lt;= #{toDate}
+    </delete>
+
+    <select id="selectClickStatsSince" parameterType="java.time.LocalDateTime" resultMap="productClickStatsMap">
+        SELECT fin_prdt_cd,
+               COUNT(*) AS click_count
+        FROM product_click_log
+        WHERE created_at >= #{fromDate}
+        GROUP BY fin_prdt_cd
+        ORDER BY click_count DESC
+    </select>
+
+</mapper>

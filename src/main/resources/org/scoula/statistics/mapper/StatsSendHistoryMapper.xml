@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="org.scoula.statistics.mapper.StatsSendHistoryMapper">
+
+    <resultMap id="statsSendHistoryResultMap" type="org.scoula.statistics.domain.StatsSendHistoryVo">
+        <id property="id" column="id"/>
+        <result property="statType" column="stat_type"/>
+        <result property="sentAt" column="sent_at"/>
+    </resultMap>
+
+    <select id="findLastSentAt" resultType="java.time.LocalDateTime">
+        SELECT sent_at
+        FROM stats_send_history
+        WHERE stat_type = #{statType}
+        ORDER BY sent_at DESC
+            LIMIT 1
+    </select>
+
+    <insert id="insertSentAt" parameterType="map">
+        INSERT INTO stats_send_history (stat_type, sent_at)
+        VALUES (#{statType}, #{sentAt})
+    </insert>
+
+</mapper>

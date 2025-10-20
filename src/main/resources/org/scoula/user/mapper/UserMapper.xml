@@ -1,0 +1,164 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+  "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.scoula.user.mapper.UserMapper">
+
+  <resultMap id="userMap" type="org.scoula.user.domain.UserVo">
+    <id property="email" column="email"/>
+    <result property="userName" column="user_name"/>
+    <result property="userPhone" column="user_phone"/>
+    <result property="birth" column="birth"/>
+    <result property="point" column="point"/>
+    <result property="connectedId" column="connected_id"/>
+    <result property="branchId" column="branch_id"/>
+    <result property="asset" column="asset"/>
+    <result property="filename1" column="filename1"/>
+    <result property="filename2" column="filename2"/>
+    <result property="tendency" column="tendency"/>
+    <result property="assetProportion" column="asset_proportion"/>
+  </resultMap>
+
+  <!-- INSERT: null 아닌 컬럼만 -->
+  <insert id="save" parameterType="org.scoula.user.domain.UserVo">
+    INSERT INTO `user`
+    <trim prefix="(" suffix=")" suffixOverrides=",">
+      <if test="email != null">email,</if>
+      <if test="userName != null">user_name,</if>
+      <if test="userPhone != null">user_phone,</if>
+      <if test="birth != null">birth,</if>
+      <if test="point != null">point,</if>
+      <if test="connectedId != null">connected_id,</if>
+      <if test="branchId != null">branch_id,</if>
+      <if test="asset != null">asset,</if>
+      <if test="filename1 != null">filename1,</if>
+      <if test="filename2 != null">filename2,</if>
+      <if test="tendency != null">tendency,</if>
+      <if test="assetProportion != null">asset_proportion,</if>
+    </trim>
+    <trim prefix="VALUES (" suffix=")" suffixOverrides=",">
+      <if test="email != null">#{email},</if>
+      <if test="userName != null">#{userName},</if>
+      <if test="userPhone != null">#{userPhone},</if>
+      <if test="birth != null">#{birth},</if>
+      <if test="point != null">#{point},</if>
+      <if test="connectedId != null">#{connectedId},</if>
+      <if test="branchId != null">#{branchId},</if>
+      <if test="asset != null">#{asset},</if>
+      <if test="filename1 != null">#{filename1},</if>
+      <if test="filename2 != null">#{filename2},</if>
+      <if test="tendency != null">#{tendency},</if>
+      <if test="assetProportion != null">#{assetProportion},</if>
+    </trim>
+  </insert>
+
+  <!-- 단건 조회 -->
+  <select id="findByEmail" resultMap="userMap">
+    SELECT email,
+           user_name,
+           user_phone,
+           birth,
+           point,
+           connected_id,
+           branch_id,
+           asset,
+           filename1,
+           filename2,
+           tendency,
+           asset_proportion
+    FROM `user`
+    WHERE email = #{email}
+  </select>
+
+  <!-- UPDATE(선택적): 변경값만 세팅.  point는 여기서 건드리지 않음 -->
+  <update id="update" parameterType="org.scoula.user.domain.UserVo">
+    UPDATE `user`
+    <set>
+      <if test="userName != null">user_name = #{userName},</if>
+      <if test="userPhone != null">user_phone = #{userPhone},</if>
+      <if test="birth != null">birth = #{birth},</if>
+      <if test="connectedId != null">connected_id = #{connectedId},</if>
+      <if test="branchId != null">branch_id = #{branchId},</if>
+      <if test="asset != null">asset = #{asset},</if>
+      <if test="filename1 != null">filename1 = #{filename1},</if>
+      <if test="filename2 != null">filename2 = #{filename2},</if>
+      <if test="tendency != null">tendency = #{tendency},</if>
+      <if test="assetProportion != null">asset_proportion = #{assetProportion},</if>
+    </set>
+    WHERE email = #{email}
+  </update>
+
+  <update id="updateUserInfo" parameterType="org.scoula.user.domain.UserVo">
+    UPDATE user
+    <set>
+      <if test="userName != null">
+        user_name = #{userName},
+      </if>
+      <if test="userPhone != null">
+        user_phone = #{userPhone},
+      </if>
+      <if test="birth != null">
+        birth = #{birth},
+      </if>
+    </set>
+    WHERE email = #{email}
+  </update>
+
+  <!--  포인트 증감 전용: 동시성 안전하게 누적 -->
+  <update id="addPoint">
+    UPDATE `user`
+    SET point = point + #{delta}
+    WHERE email = #{email}
+  </update>
+
+  <!-- 삭제 -->
+  <delete id="deleteByEmail" parameterType="string">
+    DELETE
+    FROM `user`
+    WHERE email = #{email}
+  </delete>
+
+  <!-- 전체 조회 -->
+  <select id="findAll" resultMap="userMap">
+    SELECT email,
+           user_name,
+           user_phone,
+           birth,
+           point,
+           connected_id,
+           branch_id,
+           asset,
+           filename1,
+           filename2,
+           tendency,
+           asset_proportion
+    FROM `user`
+  </select>
+
+  <!-- 기타 개별 업데이트 -->
+  <update id="updateConnectedId">
+    UPDATE `user`
+    SET connected_id = #{connectedId}
+    WHERE email = #{email}
+  </update>
+
+  <update id="updateBranchId">
+    UPDATE `user`
+    SET branch_id = #{branchId}
+    WHERE email = #{email}
+  </update>
+    
+
+  <!-- 집계 -->
+  <select id="countAllUsersWithAsset" resultType="long">
+    SELECT COUNT(*)
+    FROM `user`
+    WHERE asset IS NOT NULL
+  </select>
+
+  <select id="countUsersWithMoreAsset" parameterType="long" resultType="long">
+    SELECT COUNT(*)
+    FROM `user`
+    WHERE asset > #{asset}
+  </select>
+
+</mapper>
