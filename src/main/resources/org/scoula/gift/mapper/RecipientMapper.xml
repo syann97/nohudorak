@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<!-- namespace는 RecipientMapper 인터페이스의 전체 경로와 일치해야 합니다. -->
+<mapper namespace="org.scoula.gift.mapper.RecipientMapper">
+
+    <!-- 수증자 정보 삽입 -->
+    <insert id="insertRecipient" useGeneratedKeys="true" keyProperty="recipientId">
+        INSERT INTO recipient (email, relationship, recipient_name, birth_date, is_married, has_prior_gift,
+                               prior_gift_amount, gift_tax_payer)
+        VALUES (#{email}, #{relationship}, #{recipientName}, #{birthDate}, #{isMarried}, #{hasPriorGift},
+                #{priorGiftAmount}, #{giftTaxPayer})
+    </insert>
+
+    <!-- 특정 사용자의 모든 수증자 목록 조회 -->
+    <select id="findByEmail" resultType="org.scoula.gift.domain.RecipientVo">
+        SELECT *
+        FROM recipient
+        WHERE email = #{email}
+    </select>
+
+    <!-- 수증자 ID로 특정 수증자 정보 조회 -->
+    <select id="findById" resultType="org.scoula.gift.domain.RecipientVo">
+        SELECT *
+        FROM recipient
+        WHERE recipient_id = #{recipientId}
+    </select>
+
+    <!-- 수증자 ID와 이메일로 특정 수증자 정보 조회 (권한 확인용) -->
+    <select id="findByIdAndEmail" resultType="org.scoula.gift.domain.RecipientVo">
+        SELECT *
+        FROM recipient
+        WHERE recipient_id = #{recipientId}
+          AND email = #{email}
+    </select>
+
+    <!-- 수증자 정보 수정 -->
+    <update id="updateRecipient">
+        UPDATE recipient
+        SET relationship      = #{relationship},
+            recipient_name    = #{recipientName},
+            birth_date        = #{birthDate},
+            is_married        = #{isMarried},
+            has_prior_gift    = #{hasPriorGift},
+            prior_gift_amount = #{priorGiftAmount},
+            gift_tax_payer    = #{giftTaxPayer}
+        WHERE recipient_id = #{recipientId}
+    </update>
+
+    <!-- 수증자 정보 삭제 -->
+    <delete id="deleteById">
+        DELETE
+        FROM recipient
+        WHERE recipient_id = #{recipientId}
+    </delete>
+
+    <delete id="deleteByEmail">
+        DELETE
+        FROM recipient
+        WHERE email = #{email}
+    </delete>
+
+</mapper>

@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.scoula.asset.mapper.AssetStatusMapper">
+    <resultMap id="assetStatusMap" type="org.scoula.asset.domain.AssetStatusVo">
+        <id property="assetId" column="asset_id"/>
+        <result property="email" column="email"/>
+        <result property="assetCategoryCode" column="asset_category_code"/>
+        <result property="amount" column="amount"/>
+        <result property="assetName" column="asset_name"/>
+        <result property="businessType" column="business_type"/>
+    </resultMap>
+
+    <!-- 자산현황 간소화 데이터 -->
+    <select id="findAssetStatusSummaryByEmail" resultType="org.scoula.asset.domain.AssetStatusVo">
+        SELECT
+            asset_category_code,
+            SUM(amount) AS amount
+        FROM
+            asset_status
+        WHERE
+            email = #{email}
+        GROUP BY
+            asset_category_code
+    </select>
+
+    <select id="findAssetStatusByEmail" resultMap="assetStatusMap">
+        SELECT *
+        FROM asset_status
+        WHERE email = #{email}
+    </select>
+
+    <select id="findAssetStatusById" resultMap="assetStatusMap">
+        SELECT *
+        FROM asset_status
+        WHERE asset_id = #{id}
+    </select>
+
+    <insert id="insertAssetStatus" parameterType="org.scoula.asset.domain.AssetStatusVo" useGeneratedKeys="true" keyProperty="assetId" keyColumn="asset_id">
+        INSERT INTO asset_status (email, asset_category_code, amount, asset_name, business_type)
+        VALUES (#{email}, #{assetCategoryCode}, #{amount}, #{assetName}, #{businessType})
+    </insert>
+
+    <update id="updateAssetStatus" parameterType="org.scoula.asset.domain.AssetStatusVo">
+        UPDATE asset_status
+        SET asset_category_code = #{assetCategoryCode},
+            amount              = #{amount},
+            asset_name          = #{assetName},
+            business_type       = #{businessType}
+        WHERE asset_id = #{assetId}
+          AND email = #{email}
+    </update>
+
+    <delete id="deleteAssetStatus">
+        DELETE
+        FROM asset_status
+        WHERE asset_id = #{assetId}
+          AND email = #{email}
+    </delete>
+    <delete id="deleteByEmail">
+        DELETE
+        FROM asset_status
+        WHERE email = #{email}
+    </delete>
+</mapper>
+

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.scoula.branch.mapper.BranchMapper">
+    <resultMap id="branchMap" type="org.scoula.branch.domain.BranchVo">
+        <id property="branchName" column="branch_name"/>
+        <result property="branchPhone" column="branch_phone"/>
+        <result property="addressName" column="address_name"/>
+        <result property="roadAddressName" column="road_address_name"/>
+        <result property="x" column="x"/>
+        <result property="y" column="y"/>
+        <result property="distance" column="distance"/>
+    </resultMap>
+
+    <select id="getAllBranches" resultMap="branchMap">
+        SELECT *
+        FROM branch
+    </select>
+
+    <select id="getBranchById" resultMap="branchMap">
+        SELECT *
+        FROM branch
+        WHERE branch_id = #{branchId}
+    </select>
+
+    <update id="updateBranch">
+        UPDATE branch
+        SET branch_phone      = #{branchPhone},
+            address_name      = #{addressName},
+            road_address_name = #{roadAddressName},
+            x                 = #{x},
+            y                 = #{y},
+            distance          = #{distance}
+        WHERE branch_name = #{branchName}
+    </update>
+
+    <delete id="deleteBranch">
+        DELETE
+        FROM branch
+        WHERE branch_name = #{branchName}
+    </delete>
+
+    <select id="findBranchNameById" parameterType="int" resultType="string">
+        SELECT branch_name
+        FROM branch
+        WHERE branch_id = #{branchId}
+    </select>
+
+    <select id="existsById" parameterType="int" resultType="boolean">
+        SELECT EXISTS(SELECT 1 FROM branch WHERE branch_id = #{branchId})
+    </select>
+</mapper>

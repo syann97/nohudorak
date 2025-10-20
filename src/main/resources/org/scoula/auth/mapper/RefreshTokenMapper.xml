@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.scoula.auth.mapper.RefreshTokenMapper">
+
+    <insert id="saveRefreshToken" parameterType="org.scoula.auth.dto.RefreshTokenDto">
+        INSERT INTO refresh_token (email, token_value, expires_at)
+        VALUES (#{email}, #{tokenValue}, #{expiresAt}) ON DUPLICATE KEY
+        UPDATE
+            token_value =
+        VALUES (token_value), expires_at =
+        VALUES (expires_at);
+    </insert>
+
+    <select id="findTokenByUserEmail" resultType="org.scoula.auth.dto.RefreshTokenDto">
+        SELECT email, token_value, expires_at
+        FROM refresh_token
+        WHERE email = #{email};
+    </select>
+
+    <delete id="deleteByEmail">
+        DELETE
+        FROM refresh_token
+        WHERE email = #{email}
+    </delete>
+</mapper>

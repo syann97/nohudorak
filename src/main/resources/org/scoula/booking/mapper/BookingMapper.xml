@@ -1,0 +1,116 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.scoula.booking.mapper.BookingMapper">
+    <resultMap id="bookingMap" type="org.scoula.booking.domain.BookingVo">
+        <result property="bookingId" column="booking_id"/>
+        <result property="bookingCode" column="booking_code"/>
+        <result property="branchId" column="branch_id"/>
+        <result property="email" column="email"/>
+        <result property="finPrdtCode" column="fin_prdt_cd"/>
+        <result property="date" column="date"/>
+        <result property="time" column="time"/>
+        <result property="docInfo" column="doc_info" typeHandler="org.scoula.booking.config.JsonTypeHandler"/>
+    </resultMap>
+
+    <select id="findUpcomingByUserEmail" resultMap="bookingMap">
+        SELECT *
+        FROM booking
+        WHERE email = #{email}
+          AND STR_TO_DATE(CONCAT(`date`, ' ', `time`), '%Y-%m-%d %H:%i') <![CDATA[ >= ]]> NOW()
+        ORDER BY `date` ASC, `time` ASC
+    </select>
+
+    <select id="findById" resultMap="bookingMap">
+        SELECT *
+        FROM booking
+        WHERE booking_id = #{bookingId}
+    </select>
+
+    <select id="getBookingsByEmail" resultMap="bookingMap">
+        SELECT booking_id,
+               booking_code,
+               email,
+               fin_prdt_cd, date, time, doc_info
+        FROM
+            booking
+        WHERE
+            email = #{email}
+    </select>
+
+    <select id="getBookingById" resultMap="bookingMap">
+        SELECT *
+        FROM booking
+        WHERE booking_id = #{bookingId}
+    </select>
+
+    <select id="findByBookingCode" resultMap="bookingMap">
+        SELECT *
+        FROM booking
+        WHERE booking_code = #{bookingCode}
+    </select>
+
+    <insert id="insertBooking">
+        INSERT INTO booking (booking_id, booking_code, branch_id, email, fin_prdt_cd, date, time, doc_info)
+        VALUES (#{bookingId}, #{bookingCode}, #{branchId}, #{email}, #{finPrdtCode}, #{date}, #{time}, #{docInfo})
+    </insert>
+
+    <update id="updateBooking">
+        UPDATE booking
+        SET date = #{date},
+            time = #{time}
+        WHERE booking_id = #{bookingId}
+    </update>
+
+    <delete id="deleteBooking">
+        DELETE
+        FROM booking
+        WHERE booking_id = #{bookingId}
+    </delete>
+
+    <delete id="deleteByEmail">
+        DELETE
+        FROM booking
+        WHERE email = #{email}
+    </delete>
+
+    <delete id="deletePastBookingsByEmail">
+        DELETE FROM booking
+        WHERE email = #{email} AND date &lt; #{today}
+    </delete>
+
+    <select id="countByBranchDateTime" resultType="int">
+        SELECT COUNT(*)
+        FROM booking
+        WHERE branch_id = #{branchId}
+          AND date = #{date}
+          AND time = #{time}
+    </select>
+
+    <select id="findFutureByBranch" resultMap="bookingMap">
+        SELECT *
+        FROM booking
+        WHERE branch_id = #{branchId}
+          AND (
+            date > CURDATE()
+            OR
+            (date = CURDATE() AND time >= #{currentTime})
+            )
+        ORDER BY date, time
+    </select>
+
+    <select id="findByEmailAndFinPrdtCode" resultMap="bookingMap">
+        SELECT *
+        FROM booking
+        WHERE email = #{email}
+          AND fin_prdt_cd = #{finPrdtCode}
+        ORDER BY date DESC, time DESC
+            LIMIT 1
+    </select>
+
+    <select id="countByBranchAndDate" resultType="int">
+        SELECT COUNT(*)
+        FROM booking
+        WHERE branch_id = #{branchId}
+          AND date = #{date}
+    </select>
+</mapper>

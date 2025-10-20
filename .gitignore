@@ -1,0 +1,49 @@
+.gradle
+build/
+out/
+*.class
+
+!gradle/wrapper/gradle-wrapper.jar
+!**/src/main/**/build/
+!**/src/test/**/build/
+
+### IntelliJ IDEA ###
+.idea
+*.iml
+
+### Eclipse ###
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+bin/
+!**/src/main/**/bin/
+!**/src/test/**/bin/
+
+
+### NetBeans ###
+/nbproject/private/
+/nbbuild/
+/dist/
+/nbdist/
+/.nb-gradle/
+
+### VS Code ###
+.vscode/
+
+### Mac OS ###
+.DS_Store
+
+### API Keys & Sensitive Config ###
+application-local.properties
+application-dev.properties
+.env
+**/secrets/
+**/*secret*
+
+# src/main/webapp/resources/assets 경로의 모든 JS/CSS 파일 무시
+/src/main/webapp/resources/assets/*.js
+/src/main/webapp/resources/assets/*.css

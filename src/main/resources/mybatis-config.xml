@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE configuration
+  PUBLIC "-//mybatis.org//DTD Config 3.0//EN"
+  "http://mybatis.org/dtd/mybatis-3-config.dtd">
+<configuration>
+  <settings>
+    <setting name="mapUnderscoreToCamelCase" value="true"/>
+  </settings>
+  <typeAliases>
+    <package name="org.scoula.security.account.domain"/>
+    <package name="org.scoula.board.domain"/>
+    <package name="org.scoula.user.domain"/>
+    <package name="org.scoula.asset.domain"/>
+    <package name="org.scoula.booking.domain"/>
+    <package name="org.scoula.branch.domain"/>
+    <package name="org.scoula.faq.domain"/>
+    <package name="org.scoula.product.domain"/>
+    <package name="org.scoula.recommend.domain"/>
+    <package name="org.scoula.gift.domain"/>
+    <package name="org.scoula.news.domain"/>
+  </typeAliases>
+
+  <typeHandlers>
+    <package name="org.scoula.booking.config"/>
+  </typeHandlers>
+
+  <mappers>
+    <mapper resource="org/scoula/user/mapper/UserMapper.xml"/>
+    <mapper resource="org/scoula/product/mapper/ProductMapper.xml"/>
+    <mapper resource="org/scoula/asset/mapper/AssetStatusMapper.xml"/>
+    <mapper resource="org/scoula/gift/mapper/RecipientMapper.xml"/>
+  </mappers>
+
+</configuration>

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="org.scoula.recommend.mapper.CustomRecommendMapper">
+
+    <resultMap id="customRecommendMap" type="org.scoula.recommend.domain.CustomRecommendVo">
+        <result property="userEmail" column="user_email"/>
+        <result property="finPrdtCd" column="fin_prdt_cd"/>
+        <result property="score" column="score"/>
+    </resultMap>
+
+    <select id="getCustomRecommendsByEmail" resultMap="customRecommendMap">
+        SELECT user_email, fin_prdt_cd, score
+        FROM custom_recommend_prdt
+        WHERE user_email = #{userEmail}
+    </select>
+
+    <insert id="insertCustomRecommend">
+        INSERT INTO custom_recommend_prdt (fin_prdt_cd, user_email, score)
+        VALUES (#{finPrdtCd}, #{userEmail}, #{score})
+    </insert>
+
+    <update id="updateCustomRecommend">
+        UPDATE custom_recommend_prdt
+        SET score = #{score}
+        WHERE fin_prdt_cd = #{finPrdtCd}
+          AND user_email = #{userEmail}
+    </update>
+
+    <delete id="deleteCustomRecommend">
+        DELETE
+        FROM custom_recommend_prdt
+        WHERE fin_prdt_cd = #{finPrdtCd}
+          AND user_email = #{userEmail}
+    </delete>
+
+    <delete id="deleteAllProductsByEmail">
+        DELETE
+        FROM custom_recommend_prdt
+        WHERE user_email = #{userEmail}
+    </delete>
+
+</mapper>
