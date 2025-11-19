@@ -2,21 +2,21 @@ package org.scoula.gpt.service;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import java.util.concurrent.Executor;
 
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
+import org.apache.pdfbox.text.TextPosition;
 import org.scoula.gpt.dto.ChatRequestDto;
 import org.scoula.gpt.dto.ChatResponseDto;
 import org.springframework.beans.BeansException;
@@ -70,6 +70,8 @@ public class GptServiceImpl implements GptService, ApplicationListener<ContextRe
 	private Executor taskExecutor;
 
 	private ApplicationContext applicationContext;
+
+	private static final int MAX_CHUNK_CHAR_LIMIT = 10000;
 
 	/**
 	 * [신규] ApplicationContextAware 인터페이스의 구현 메서드
@@ -134,16 +136,212 @@ public class GptServiceImpl implements GptService, ApplicationListener<ContextRe
 		}
 	}
 
+	// ===================================================================================
+	// === Layout-Aware 파싱을 위한 비공개 정적 내부 클래스 ===
+	// ===================================================================================
+	/**
+	 * PDF의 레이아웃(폰트 크기, Y좌표)을 분석하여 Markdown을 생성하는 커스텀 Stripper.
+	 * [V3 개선]
+	 * 1. '상태 플래그'(contentStarted, contentEnded)를 도입하여 목차(TOC)와 부록(집필자 등)을 파싱 단계에서부터 제외.
+	 * 2. Y좌표를 이용한 헤더/푸터 영역 필터링 로직 추가.
+	 * 3. 목차의 "・・・・・・" 패턴을 명시적으로 필터링.
+	 */
+	private static class LayoutAwareStripper extends PDFTextStripper {
+
+		private final StringBuilder markdown = new StringBuilder();
+		private float lastY = -1;
+		private float lastFontSize = -1;
+		private boolean isNewLine = true;
+
+		// --- [개선] 상태 플래그 및 마커 ---
+		/**
+		 * true가 되기 전까지 모든 텍스트를 무시 (목차 스킵용)
+		 */
+		private boolean contentStarted = false;
+		/**
+		 * true가 되면 이후 모든 텍스트를 무시 (부록 스킵용)
+		 */
+		private boolean contentEnded = false;
+		/**
+		 * 본문 시작을 알리는 첫 번째 용어
+		 */
+		private static final String START_MARKER = "가계부실위험지수(HDRI)";
+		/**
+		 * 본문 종료(부록 시작)를 알리는 마커
+		 */
+		private static final String END_MARKER = "경제금융용어 700선  집필자";
+		// ---------------------------------
+
+		// [튜닝 포인트 1] PDF 원본 확인 후, 본문 폰트 크기보다는 크고 제목 폰트 크기보다는 작은 값으로 조정
+		private static final float HEADING_FONT_SIZE_THRESHOLD = 11.5f;
+
+		// [튜닝 포인트 2] 단락 구분을 위한 Y좌표 간격 (폰트 크기의 1.5배)
+		private static final float PARAGRAPH_SPACE_THRESHOLD = 1.5f;
+
+		// [튜닝 포인트 3] 헤더/푸터 영역 Y좌표 (A4 페이지 842pt 기준)
+		private static final float HEADER_Y_LIMIT = 70.0f;
+		private static final float FOOTER_Y_LIMIT = 770.0f; // 페이지 번호 '1', '2' 등이 찍히는 Y좌표
+
+		public LayoutAwareStripper() throws IOException {
+			super();
+			// [필수!] PDFBox가 텍스트를 시각적 Y/X 좌표 순서로 정렬하도록 강제
+			setSortByPosition(true);
+		}
+
+		/**
+		 * 파싱 완료된 Markdown 텍스트를 반환합니다.
+		 */
+		public String getMarkdownResult() {
+			return markdown.toString().trim();
+		}
+
+		/**
+		 * PDF의 텍스트 조각(TextPosition)을 하나씩 처리하며 Markdown을 생성합니다.
+		 * (상태 관리 로직이 적용된 최종 버전)
+		 */
+		@Override
+		protected void writeString(String text, List<TextPosition> textPositions) throws IOException {
+
+			// 1. Guard Clauses (유효성 검사)
+			if (textPositions.isEmpty()) {
+				return;
+			}
+			String trimmedText = text.trim();
+			if (trimmedText.isEmpty()) {
+				return;
+			}
+
+			// --- [개선] 상태 머신(State Machine) 로직 ---
+			// 2-1. [상태 3] 본문이 종료되었다면, 이후 모든 텍스트 무시
+			if (contentEnded) {
+				return;
+			}
+
+			// 2-2. 본문 종료 마커("집필자")를 감지하면, 상태를 3으로 변경하고 현재 텍스트 무시
+			if (trimmedText.contains(END_MARKER)) {
+				log.info("본문 종료 마커('{}') 감지. 이후 텍스트를 무시합니다.", END_MARKER);
+				contentEnded = true;
+				return;
+			}
+
+			// 2-3. [상태 1] 아직 본문이 시작되지 않았다면,
+			if (!contentStarted) {
+				// 2-4. 본문 시작 마커(첫 용어)를 감지하면 상태를 2로 변경 (파싱 시작)
+				if (trimmedText.equals(START_MARKER)) {
+					log.info("본문 시작 마커('{}') 감지. 파싱을 시작합니다.", START_MARKER);
+					contentStarted = true;
+					// (fall-through하여 이 텍스트부터 파싱을 시작함)
+				} else {
+					// 2-5. 시작 마커가 아니면 (머리말, 목차 등) 현재 텍스트 무시
+					log.trace("본문 시작 전 텍스트 무시: {}", trimmedText);
+					return;
+				}
+			}
+			// --- [상태 2] (contentStarted = true, contentEnded = false) ---
+			// 3. 노이즈 필터링 (TOC, 헤더, 푸터)
+			// 3-1. [개선] 목차(TOC)의 "...." 패턴이 포함된 라인 폐기
+			// (상태 관리 로직으로 대부분 걸러지지만, 만약을 위한 이중 방어)
+			if (trimmedText.contains("・・・・・・")) {
+				log.trace("목차(TOC) 패턴 감지. 텍스트 무시: {}", trimmedText);
+				return;
+			}
+
+			// 3-2. [개선] 헤더/푸터 Y좌표 영역 텍스트 폐기
+			TextPosition firstPos = textPositions.get(0);
+			float currentY = firstPos.getY();
+			float currentFontSize = firstPos.getFontSizeInPt();
+
+			if (currentY < HEADER_Y_LIMIT || currentY > FOOTER_Y_LIMIT) {
+				log.trace("헤더/푸터 Y좌표({}pt) 텍스트 무시: {}", currentY, trimmedText);
+				return; // (페이지 번호 '1', '2', '3'... 등이 여기서 걸러짐)
+			}
+
+			// 4. 줄바꿈(isNewLine) 여부 판단 및 줄바꿈/공백 삽입
+			if (lastY == -1) { // 문서 또는 페이지의 첫 시작
+				isNewLine = true;
+			} else if (Math.abs(currentY - lastY) > 1.0f) { // Y좌표가 1.0pt 이상 변경됨 (새 줄)
+				isNewLine = true;
+
+				if (Math.abs(currentY - lastY) > (currentFontSize * PARAGRAPH_SPACE_THRESHOLD)) {
+					if (markdown.length() > 0 && !markdown.toString().endsWith("\n\n")) {
+						markdown.append("\n\n"); // 새 문단
+					}
+				} else { // 단순 줄바꿈
+					if (markdown.length() > 0 && !markdown.toString().endsWith("\n") && !markdown.toString().endsWith("\n\n")) {
+						markdown.append("\n");
+					}
+				}
+			} else { // Y좌표가 거의 동일 (같은 줄)
+				isNewLine = false;
+				if (markdown.length() > 0 && !markdown.toString().endsWith(" ") && !markdown.toString().endsWith("\n")) {
+					markdown.append(" "); // 같은 줄 단어 사이 공백
+				}
+			}
+
+			// 5. "Junk Content" 식별 (RAG에 불필요한 색인 문자 등)
+			boolean isJunkContent = trimmedText.matches("^[ㄱ-ㅎ]$") || // "ㄱ", "ㄴ", "ㄷ"...
+				trimmedText.matches("^[A-Z]$");    // "A", "B", "C"...
+
+			// 6. 텍스트 내용 추가 (핵심 로직)
+			if (isNewLine && currentFontSize > HEADING_FONT_SIZE_THRESHOLD && !isJunkContent) {
+				// Case 1: [진짜 제목] (새 줄 + 큰 폰트 + Junk 아님)
+				if (markdown.length() > 0 && !markdown.toString().endsWith("\n\n")) {
+					if (markdown.toString().endsWith("\n")) {
+						markdown.setLength(markdown.length() - 1); // 기존 \n 제거
+					}
+					markdown.append("\n\n");
+				}
+				markdown.append("## ").append(trimmedText);
+
+			} else if (isNewLine && isJunkContent) {
+				// Case 2: [가짜 제목/내용] (새 줄 + Junk 임)
+				log.trace("Junk 헤더('{}') 무시", trimmedText);
+				if (markdown.toString().endsWith("\n\n")) {
+					markdown.setLength(markdown.length() - 2);
+				} else if (markdown.toString().endsWith("\n")) {
+					markdown.setLength(markdown.length() - 1);
+				}
+				// (텍스트는 append하지 않음)
+
+			} else if (isNewLine) {
+				// Case 3: [일반 텍스트 줄 시작]
+				markdown.append(trimmedText);
+
+			} else {
+				// Case 4: [같은 줄 텍스트]
+				markdown.append(text); // trim 안함
+			}
+
+			// 7. 다음 비교를 위해 마지막 위치/폰트 정보 업데이트
+			if (!(isNewLine && isJunkContent)) {
+				lastY = textPositions.get(textPositions.size() - 1).getY();
+				lastFontSize = currentFontSize;
+			}
+		}
+
+		// 페이지가 끝날 때마다 Y좌표 리셋
+		@Override
+		protected void writePageEnd() {
+			// [개선] 본문이 시작된 후에만 페이지 구분을 추가
+			if (contentStarted && !contentEnded) {
+				markdown.append("\n\n");
+			}
+			lastY = -1;
+			lastFontSize = -1;
+		}
+	}
 
 	/**
-	 * RAG 데이터 준비 단계: PDF를 읽어 벡터 저장소를 구축합니다.
-	 * [개선점] TaskRejectedException 해결을 위해 '배치(Batch)' 단위로 작업을 분할하여 처리합니다.
+	 * RAG 데이터 준비 단계: Layout-Aware 파싱 및 '하이브리드' Semantic Chunking
+	 * [V3 수정]
+	 * 1. 상태 관리가 포함된 LayoutAwareStripper V3 호출
+	 * 2. 청킹 완료 후, 본문과 관련 없는 부록/메타데이터 청크를 필터링하는 로직 추가
 	 *
 	 * @param filePath PDF 파일 경로
 	 * @throws IOException 파일 읽기 실패 시
 	 */
 	private void initializeRagData(String filePath) throws IOException {
-		log.info("RAG 데이터 초기화를 (비동기) 시작합니다. 경로: {}", filePath);
+		log.info("RAG 데이터 초기화를 (비동기) 시작합니다. (Layout-Aware + State Machine 파싱 방식) 경로: {}", filePath);
 		Resource ragResource = resourceLoader.getResource(filePath);
 
 		if (!ragResource.exists()) {
@@ -151,118 +349,167 @@ public class GptServiceImpl implements GptService, ApplicationListener<ContextRe
 			throw new FileNotFoundException("PDF 파일을 찾을 수 없습니다.");
 		}
 
-		String rawText;
+		// 1단계: [개선된] Layout-Aware + State Machine 파싱
+		String markdownText;
 		try (PDDocument document = PDDocument.load(ragResource.getInputStream())) {
-			PDFTextStripper pdfStripper = new PDFTextStripper();
-			rawText = pdfStripper.getText(document);
+			log.info("1단계: Layout-Aware Stripper (State Machine) 파싱을 시작합니다...");
+			// GptServiceImpl의 private static inner class로 LayoutAwareStripper가 정의되어 있어야 함
+			LayoutAwareStripper stripper = new LayoutAwareStripper();
+			stripper.getText(document);
+			markdownText = stripper.getMarkdownResult();
 		}
 
-		// --- 텍스트 정제 로직 (기존과 동일) ---
-		String contentText = rawText;
-		int tocEndIndex = rawText.lastIndexOf("찾아보기"); // 목차의 마지막 '찾아보기' 제목
-		int contentStartIndex = -1;
-
-		if (tocEndIndex != -1) {
-			Pattern chapterStartPattern = Pattern.compile("(?m)^\\s*ㄱ\\s*$");
-			Matcher matcher = chapterStartPattern.matcher(rawText.substring(tocEndIndex));
-			if (matcher.find()) {
-				contentStartIndex = tocEndIndex + matcher.start();
-			}
+		// (디버깅 코드 - 파일명 변경)
+		try {
+			String dumpFileName = "structured_markdown_dump_v3.txt"; // 새 이름으로 저장
+			java.nio.file.Path dumpPath = Paths.get(dumpFileName);
+			Files.writeString(dumpPath, markdownText);
+			log.info("개선된 파싱 결과(Markdown)를 다음 경로에 파일로 저장했습니다: {}", dumpPath.toAbsolutePath());
+		} catch (IOException e) {
+			log.warn("Markdown 덤프 파일 저장 중 오류 발생", e);
 		}
 
-		if (contentStartIndex != -1) {
-			contentText = rawText.substring(contentStartIndex);
-			log.info("문서 구조 분석을 통해 본문 시작점을 찾았습니다.");
-		} else {
-			log.warn("PDF에서 본문 시작점('ㄱ' 섹션)을 찾지 못했습니다. 목차 등이 포함될 수 있습니다.");
-		}
+		// 2단계: '하이브리드' Markdown 기반 Semantic Chunking
+		log.info("2단계: '하이브리드' Markdown 기반 Semantic Chunking을 시작합니다...");
 
-		String cleanedText = contentText
-			.replaceAll("(?m)^경제금융용어 700선.*$", "")
-			.replaceAll("(?m)^[ivxlcdm\\d]+\\s*$", "")
-			.replaceAll("(?m)^\\s*[ㄱ-ㅎ]\\s*$", "")
-			.replaceAll("(?m)^\\s*[A-Z]{1,3}\\s*$", "");
+		// 1차 분할: '## ' (제목) 기준으로 분할
+		String[] rawChunks = markdownText.split("(?m)(?=\n##\\s)");
 
-		// --- '용어' 단위 지능적 분할 로직 (기존과 동일) ---
-		List<String> chunks = new ArrayList<>();
-		StringBuilder currentChunk = new StringBuilder();
-		String[] lines = cleanedText.split("\\r?\\n");
+		List<String> chunks = new ArrayList<>(); // 1차 청크 리스트
+		final String PARAGRAPH_SPLITTER = "\n\n";
 
-		for (String line : lines) {
-			String trimmedLine = line.trim();
-			if (trimmedLine.isEmpty()) continue;
+		for (String rawChunk : rawChunks) {
+			String cleanedChunk = rawChunk.trim();
 
-			boolean isLikelyTitle = trimmedLine.length() < 50 && !trimmedLine.endsWith("다.") && !trimmedLine.endsWith(".)") && !trimmedLine.startsWith("연관검색어");
+			// 2.1: 청크가 최대 길이(MAX_CHUNK_CHAR_LIMIT)를 초과하는지 확인
+			if (cleanedChunk.length() > MAX_CHUNK_CHAR_LIMIT) {
+				log.warn("청크가 최대 길이( {}자)를 초과했습니다 (현재 {}자). 문단 기준으로 2차 분할합니다. (시작: '{}...')",
+					MAX_CHUNK_CHAR_LIMIT, cleanedChunk.length(), cleanedChunk.substring(0, 50).replaceAll("\\r?\\n", " "));
 
-			if (isLikelyTitle) {
-				if (currentChunk.length() > 0) {
-					chunks.add(currentChunk.toString().trim());
+				// 2.2: 문단(`\n\n`) 기준으로 2차 분할
+				String[] subChunks = cleanedChunk.split(PARAGRAPH_SPLITTER);
+
+				if (subChunks.length > 1) {
+					// 2.3: 첫 번째 청크는 '제목' (예: "## 용어 A")
+					String titleHeader = subChunks[0];
+					StringBuilder currentSubChunkBuilder = new StringBuilder(titleHeader);
+
+					// 2.4: 나머지 문단들을 순회하며 제목을 붙여 하위 청크 생성
+					for (int i = 1; i < subChunks.length; i++) {
+						String paragraph = subChunks[i].trim();
+						if (paragraph.isEmpty()) continue; // 빈 문단 스킵
+
+						// 2.5: 문단을 붙였을 때 최대 길이를 넘는지 확인
+						if (currentSubChunkBuilder.length() + paragraph.length() + PARAGRAPH_SPLITTER.length() > MAX_CHUNK_CHAR_LIMIT) {
+							// 넘으면, 지금까지 만든 청크를 저장하고 새 청크 시작
+							String finalSubChunk = postProcessChunk(currentSubChunkBuilder.toString());
+							if (isValidChunk(finalSubChunk)) {
+								chunks.add(finalSubChunk);
+							}
+							// 새 청크는 다시 '제목' + '현재 문단'으로 시작
+							currentSubChunkBuilder = new StringBuilder(titleHeader).append(PARAGRAPH_SPLITTER).append(paragraph);
+						} else {
+							// 넘지 않으면, 현재 청크에 문단을 계속 추가
+							currentSubChunkBuilder.append(PARAGRAPH_SPLITTER).append(paragraph);
+						}
+					}
+					// 2.6: 마지막에 남아있는 하위 청크도 추가
+					String finalSubChunk = postProcessChunk(currentSubChunkBuilder.toString());
+					if (isValidChunk(finalSubChunk)) {
+						chunks.add(finalSubChunk);
+					}
+				} else {
+					// 2.7: 문단 분할이 불가능한 거대 청크 (최악의 경우)
+					log.error("청크가 너무 길지만 문단( '{}')으로 분할할 수 없습니다. 강제로 {}자에서 자릅니다. (시작: '{}...')",
+						PARAGRAPH_SPLITTER, MAX_CHUNK_CHAR_LIMIT, cleanedChunk.substring(0, 50).replaceAll("\\r?\\n", " "));
+					String truncatedChunk = cleanedChunk.substring(0, MAX_CHUNK_CHAR_LIMIT);
+					String finalTruncatedChunk = postProcessChunk(truncatedChunk);
+					// 유효성(## 시작)도 통과 못하면 그냥 강제로 추가
+					chunks.add(finalTruncatedChunk);
 				}
-				currentChunk = new StringBuilder(trimmedLine).append("\n");
-			} else {
-				if (currentChunk.length() > 0) {
-					currentChunk.append(trimmedLine).append(" ");
+
+			} else if (!cleanedChunk.isEmpty()) {
+				// 2.8: 청크가 길지 않은 경우 (정상)
+				String finalChunk = postProcessChunk(cleanedChunk); // 정제
+				if (isValidChunk(finalChunk)) { // 유효성 검사
+					chunks.add(finalChunk);
 				}
 			}
 		}
-		if (currentChunk.length() > 0) {
-			chunks.add(currentChunk.toString().trim());
+		// --- 2단계(하이브리드 청킹) 끝 ---
+
+		// [개선] 3단계: 청크 후처리 (Junk 청크 필터링)
+		// "## ABC", "## 경제금융용어 700선  집필자" 등 본문이 아닌 청크를 제거합니다.
+		List<String> finalFilteredChunks = chunks.stream()
+			.filter(chunk ->
+				!chunk.startsWith("## ABC") &&          // "ABC" 섹션 제외
+					!chunk.startsWith("## 경제금융용어 700선") // "집필자" 섹션 제외
+			)
+			.collect(Collectors.toList());
+
+		log.info("Markdown 기반 청크 분할 완료. (1차: {}개) -> 후처리 필터링 -> (최종: {}개)", chunks.size(), finalFilteredChunks.size());
+
+		// 4단계: 비동기 스트리밍 임베딩
+		log.info("총 {}개의 청크에 대해 '비동기 스트리밍 임베딩'을 시작합니다. (Executor: {})", finalFilteredChunks.size(), taskExecutor);
+
+		List<CompletableFuture<Void>> allProcessingFutures = new ArrayList<>();
+
+		// [수정] 'finalFilteredChunks' 리스트를 사용
+		for (String chunk : finalFilteredChunks) {
+			CompletableFuture<Map.Entry<String, List<Float>>> embeddingFuture =
+				CompletableFuture.supplyAsync(() -> createEmbedding(chunk), taskExecutor);
+
+			CompletableFuture<Void> processingFuture = embeddingFuture.thenAccept(entry -> {
+				if (entry != null) {
+					vectorStore.put(entry.getKey(), entry.getValue());
+					String chunkText = entry.getKey();
+					log.info("  > [비동기 저장 완료] 청크: {}", chunkText.substring(0, Math.min(chunkText.length(), 70)).replaceAll("\\r?\\n", " "));
+				} else {
+					log.warn("임베딩 결과가 null이므로 저장을 건너뜁니다. (원본 청크: {}...)", chunk.substring(0, Math.min(chunk.length(), 30)));
+				}
+			});
+
+			allProcessingFutures.add(processingFuture);
 		}
 
-		chunks.removeIf(chunk -> chunk.length() < 50);
+		log.info("모든 임베딩+저장 작업(총 {}개)이 'taskExecutor'에 제출되었습니다. 전체 완료를 기다립니다...", allProcessingFutures.size());
 
-		log.info("PDF에서 총 {}개의 의미 있는 텍스트 조각(Chunk)을 추출하고 정제했습니다.", chunks.size());
-
-		// --- [수정된 로직] 임베딩 및 저장 로직 (배치 처리) ---
-		log.info("총 {}개의 청크에 대해 '배치 병렬 임베딩'을 시작합니다. (Executor: {})", chunks.size(), taskExecutor);
-
-		// 스레드 풀의 최대 크기(maxPoolSize)와 맞추는 것이 좋습니다.
-		final int batchSize = 10;
-		List<CompletableFuture<Map.Entry<String, List<Float>>>> batchFutures = new ArrayList<>();
-
-		for (String chunk : chunks) {
-			// 1. 작업을 비동기로 생성하여 배치 리스트에 추가
-			batchFutures.add(
-				CompletableFuture.supplyAsync(() -> createEmbedding(chunk), taskExecutor)
-			);
-
-			// 2. 배치가 꽉 차면, 이 배치가 완료될 때까지 기다린 후 결과를 저장
-			if (batchFutures.size() >= batchSize) {
-				log.info("임베딩 배치( {}개) 처리 및 대기...", batchFutures.size());
-				processEmbeddingBatch(batchFutures);
-				batchFutures.clear(); // 다음 배치를 위해 리스트 비우기
-			}
-		}
-
-		// 3. 마지막으로 남아있는 작업들 처리
-		if (!batchFutures.isEmpty()) {
-			log.info("남아있는 마지막 임베딩 배치( {}개) 처리...", batchFutures.size());
-			processEmbeddingBatch(batchFutures);
+		try {
+			CompletableFuture.allOf(allProcessingFutures.toArray(new CompletableFuture[0])).join();
+		} catch (Exception e) {
+			log.error("임베딩 작업 대기 중 예외 발생", e);
 		}
 
 		log.info("RAG 데이터 초기화 완료. 총 {}개의 벡터를 메모리에 저장했습니다.", vectorStore.size());
 	}
 
 	/**
-	 * [신규 헬퍼 메서드]
-	 * 임베딩 작업 배치(List<CompletableFuture>)가 모두 완료되기를 기다린 후,
-	 * 그 결과(Map.Entry)를 vectorStore에 저장합니다.
-	 *
-	 * @param batchFutures 처리할 비동기 작업 목록
+	 * [헬퍼 메서드 1]
+	 * 청크에서 불필요한 공백, 머리글/꼬리글 등을 제거합니다.
 	 */
-	private void processEmbeddingBatch(List<CompletableFuture<Map.Entry<String, List<Float>>>> batchFutures) {
-		// 1. 배치의 모든 작업이 완료될 때까지 현재 스레드(RagAsync- 스레드)를 대기시킴
-		CompletableFuture.allOf(batchFutures.toArray(new CompletableFuture[0])).join();
-
-		// 2. 완료된 작업들의 결과를 수집하여 vectorStore에 저장
-		batchFutures.stream()
-			.map(CompletableFuture::join) // 각 Future의 결과를 가져옴 (이미 완료됨)
-			.filter(Objects::nonNull)     // 실패한 작업(null)은 필터링
-			.forEach(entry -> vectorStore.put(entry.getKey(), entry.getValue()));
+	private String postProcessChunk(String chunk) {
+		return chunk
+			.replaceAll("(?m)^경제금융용어 700선.*$", "") // 머리글/꼬리글
+			.replaceAll("(?m)^[ivxlcdm\\d]+\\s*$", "") // 페이지 번호
+			.replaceAll("\n\\s*\n+", "\n\n") // 과도한 빈 줄
+			.trim();
 	}
 
 	/**
-	 * [신규 헬퍼 메서드]
+	 * [헬퍼 메서드 2]
+	 * 청크가 RAG에 사용하기에 유효한지(제목으로 시작하는지, 최소 길이를 넘는지) 검사합니다.
+	 */
+	private boolean isValidChunk(String chunk) {
+		// "## " (4자) + 최소한의 제목/내용 (예: 20자)
+		boolean valid = chunk.length() > 24 && chunk.startsWith("## ");
+		if (!valid && !chunk.isEmpty()) {
+			log.debug("너무 짧거나 헤딩이 없어 제외된 청크: '{}...'", chunk.substring(0, Math.min(chunk.length(), 50)));
+		}
+		return valid;
+	}
+
+	/**
+	 * [헬퍼 메서드 3]
 	 * 청크 1개에 대한 임베딩 API 호출을 수행하는 헬퍼 메서드입니다.
 	 * CompletableFuture.supplyAsync 내부에서 호출됩니다.
 	 *
