@@ -13,6 +13,7 @@ import org.springframework.context.annotation.ComponentScan;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.context.annotation.PropertySource;
 import org.springframework.jdbc.datasource.DataSourceTransactionManager;
+import org.springframework.scheduling.annotation.EnableAsync;
 import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.web.client.RestTemplate;
@@ -40,6 +41,7 @@ import lombok.extern.log4j.Log4j2;
 	"org.scoula.View.Event.mapper"
 })
 @ComponentScan(basePackages = {
+	"org.scoula.config",
 	"org.scoula.user.service",
 	"org.scoula.asset.service",
 	"org.scoula.recommend.service",
@@ -67,6 +69,7 @@ import lombok.extern.log4j.Log4j2;
 })
 @Log4j2
 @EnableTransactionManagement
+@EnableAsync(proxyTargetClass = true)
 /***
  * Mybatis- MapperScan : Mapper인터페이스를 검색할 패키지 목록 지정
  * -> 해당 인터페이스를 빈으로 지정
@@ -117,5 +120,4 @@ public class RootConfig {
 	public RestTemplate restTemplate() {
 		return new RestTemplate();
 	}
-
 }

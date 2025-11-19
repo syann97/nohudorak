@@ -1,6 +1,7 @@
 package org.scoula.question.service;
 
 import java.io.IOException;
+import java.util.concurrent.CompletableFuture;
 
 import org.scoula.question.dto.QuestionResponseDto;
 import org.springframework.security.core.Authentication;
@@ -18,7 +19,7 @@ public interface QuestionService {
 	 * @param authentication 사용자 인증 정보
 	 * @return 처리 결과 DTO
 	 */
-	QuestionResponseDto handleTextQuestion(String text, Authentication authentication);
+	CompletableFuture<QuestionResponseDto> handleTextQuestion(String text, Authentication authentication);
 
 	/**
 	 * 음성 파일을 텍스트로 변환하고 GPT 답변을 반환합니다.
@@ -29,7 +30,5 @@ public interface QuestionService {
 	 * @throws IOException 파일 처리 또는 API 호출 중 발생할 수 있는 예외
 	 * @throws InterruptedException FFmpeg 프로세스 중 발생할 수 있는 예외
 	 */
-	QuestionResponseDto handleVoiceQuestion(MultipartFile audioFile, Authentication authentication) throws
-		IOException,
-		InterruptedException;
+	CompletableFuture<QuestionResponseDto> handleVoiceQuestion(MultipartFile audioFile, Authentication authentication);
 }

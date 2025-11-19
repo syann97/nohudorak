@@ -4,11 +4,14 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.util.Map;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executor;
 
 import org.scoula.gpt.dto.ChatRequestDto;
 import org.scoula.gpt.dto.ChatResponseDto;
 import org.scoula.gpt.service.GptService;
 import org.scoula.question.dto.QuestionResponseDto;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpEntity;
 import org.springframework.http.HttpHeaders;
@@ -20,6 +23,7 @@ import org.springframework.security.core.Authentication;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.beans.factory.annotation.Qualifier;
 
 import net.bramp.ffmpeg.FFmpeg;
 import net.bramp.ffmpeg.builder.FFmpegBuilder;
@@ -37,33 +41,68 @@ public class QuestionServiceImpl implements QuestionService {
 	@Value("${naver.clova.api.key.secret}")
 	private String clovaSpeechApiKey;
 
+	// --- 1. 비동기 I/O 작업을 위한 Executor 주입 ---
+	@Autowired
+	@Qualifier("ragTaskExecutor")
+	private Executor taskExecutor;
+
 	@Override
-	public QuestionResponseDto handleTextQuestion(String text, Authentication authentication) {
+	public CompletableFuture<QuestionResponseDto> handleTextQuestion(String text, Authentication authentication) { // --- 2. 반환 타입 변경 ---
 		String userEmail = authentication != null ? authentication.getName() : "비로그인";
-		log.info("텍스트 질문 처리 시작 - 사용자: {}, 질문: '{}'", userEmail, text);
+		log.info("비동기 텍스트 질문 처리 시작 - 사용자: {}, 질문: '{}'", userEmail, text);
 
-		ChatResponseDto gptResponseDto = gptService.getChatResponse(new ChatRequestDto(text));
-		log.info("GPT 응답 = {}", gptResponseDto.getAnswer());
-
-		return new QuestionResponseDto("SUCCESS", "텍스트 질문이 성공적으로 처리되었습니다.", text, gptResponseDto.getAnswer());
+		// 3. gptService의 비동기 메서드 호출 후, thenApply로 결과 변환
+		return gptService.getChatResponse(new ChatRequestDto(text))
+			.thenApply(gptResponseDto -> {
+				// 이 블록은 GPT 응답이 오면 실행됨
+				log.info("GPT 응답 = {}", gptResponseDto.getAnswer());
+				return new QuestionResponseDto("SUCCESS", "텍스트 질문이 성공적으로 처리되었습니다.", text, gptResponseDto.getAnswer());
+			})
+			.exceptionally(ex -> {
+				// gptService.getChatResponse에서 예외 발생 시
+				log.error("텍스트 질문 처리 중 오류", ex);
+				return new QuestionResponseDto("ERROR", ex.getMessage(), text, null);
+			});
 	}
 
 	@Override
-	public QuestionResponseDto handleVoiceQuestion(MultipartFile audioFile, Authentication authentication) throws
-		IOException,
-		InterruptedException {
+	public CompletableFuture<QuestionResponseDto> handleVoiceQuestion(MultipartFile audioFile, Authentication authentication) { // --- 4. 반환 타입 변경 및 throws 제거 ---
 		String userEmail = authentication != null ? authentication.getName() : "비로그인";
-		log.info("음성 질문 처리 시작 - 사용자: {}, 파일: {}", userEmail, audioFile.getOriginalFilename());
+		log.info("비동기 음성 질문 처리 시작 - 사용자: {}, 파일: {}", userEmail, audioFile.getOriginalFilename());
 
-		// 1. 음성 파일을 텍스트로 변환 (FFmpeg + CLOVA API)
-		String speechToText = convertSpeechToText(audioFile);
-		log.info("음성 -> 텍스트 변환 결과: '{}'", speechToText);
+		// 5. STT (I/O 작업)를 별도 스레드에서 비동기 실행
+		CompletableFuture<String> speechToTextFuture = CompletableFuture.supplyAsync(() -> {
+			try {
+				log.info("비동기: 음성 -> 텍스트 변환 시작 (Thread: {})", Thread.currentThread().getName());
+				// convertSpeechToText는 I/O가 발생하므로 비동기 처리
+				return convertSpeechToText(audioFile);
+			} catch (IOException | InterruptedException e) {
+				// 6. Checked Exception을 Unchecked로 변환하여 비동기 파이프라인에 전파
+				log.error("음성 변환(STT) 작업 중 오류", e);
+				throw new RuntimeException("음성 파일 변환(STT)에 실패했습니다.", e);
+			}
+		}, taskExecutor); // 정의된 스레드 풀 사용
 
-		// 2. 변환된 텍스트로 GPT 서비스 호출
-		ChatResponseDto gptResponseDto = gptService.getChatResponse(new ChatRequestDto(speechToText));
-		log.info("GPT 응답 = {}", gptResponseDto.getAnswer());
+		// 7. STT 작업이 완료되면(thenCompose), 비동기 GPT 서비스 호출
+		return speechToTextFuture.thenCompose(speechToText -> {
+			log.info("음성 -> 텍스트 변환 결과: '{}'", speechToText);
 
-		return new QuestionResponseDto("SUCCESS", "음성 질문이 성공적으로 처리되었습니다.", speechToText, gptResponseDto.getAnswer());
+			// 8. gptService.getChatResponse는 이미 CompletableFuture를 반환하므로 thenCompose 사용
+			CompletableFuture<ChatResponseDto> gptFuture = gptService.getChatResponse(new ChatRequestDto(speechToText));
+
+			// 9. GPT 응답이 오면(thenApply) 최종 DTO로 변환
+			return gptFuture.thenApply(gptResponseDto -> {
+				log.info("GPT 응답 = {}", gptResponseDto.getAnswer());
+				return new QuestionResponseDto("SUCCESS", "음성 질문이 성공적으로 처리되었습니다.", speechToText, gptResponseDto.getAnswer());
+			});
+
+		}).exceptionally(ex -> {
+			// 10. STT 또는 GPT 작업 중 발생한 모든 예외 처리
+			log.error("음성 질문 처리 파이프라인 중 오류", ex);
+			// 실패 시 사용자에게 보여줄 DTO 반환
+			String originalText = (ex.getCause() != null) ? null : ex.getMessage(); // STT 실패 시 text는 null
+			return new QuestionResponseDto("ERROR", "질문 처리 중 오류가 발생했습니다: " + ex.getMessage(), originalText, null);
+		});
 	}
 
 	/**

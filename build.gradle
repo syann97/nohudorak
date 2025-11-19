@@ -136,6 +136,13 @@ dependencies {
 
     // ffmpeg
     implementation 'net.bramp.ffmpeg:ffmpeg:0.7.0'
+
+
+    // RAG
+    implementation 'org.apache.pdfbox:pdfbox:2.0.27'
+    implementation 'org.apache.commons:commons-math3:3.6.1'
+
+    implementation 'cglib:cglib:3.3.0'
 }
 
 test {
